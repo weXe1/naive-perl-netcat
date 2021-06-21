@@ -40,15 +40,11 @@ sub uploadfile {
         }
         else {
             $file_buffer .= $data;
-            print "UPLOAD: RECEIVED DATA: $data\n";
         }
     }
-    print "AFTER WHILE\n";
     unless($guard) {
         open(my $fh, ">$upload") or die "[!!] Cannot open file: $!\n";
-        print "FILE OPENED\n";
         print $fh $file_buffer;
-        print "FILE SAVED\n";
         $guard = 1;
         close $fh;
         return;
