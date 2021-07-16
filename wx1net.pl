@@ -1,4 +1,7 @@
 #!/usr/bin/perl
+
+# I didn't test this very much so good luck xD - weXe1
+
 use strict;
 use warnings;
 use IO::Socket::INET;
@@ -8,10 +11,11 @@ use IO::Select;
 my $ioset = IO::Select->new();
 my($target, $port, $listen, $command, $execute, $upload);
 my $guard = 0;  # prevent overwriting file
+my $options = 0; # true if options are set
 
 sub usage {
     print "usage:\n";
-    print "connect to somewhere:\t $0 [options] -t <hostname> -p <port>\n";
+    print "connect to somewhere:\t $0 -t <hostname> -p <port> [options]\n";
     print "listen for inbound:\t $0 -l -p <port> [options]\n";
     print "options:\n";
     print "\t-t  --target\t\t\tin client mode target hostname, in server mode hostname to bind\n";
@@ -20,6 +24,9 @@ sub usage {
     print "\t-c  --command\t\t\texecute shell commands\n";
     print "\t-e  --execute=<file to run>\texecuting file when receiving connection\n";
     print "\t-u  --upload=<destination>\treceiving file and saving it in <destination>\n";
+    print "e.g.\n";
+    print "perl $0 -t localhost -p 8888 -l\n"; # reverse remote command execution (server)
+    print "perl $0 -t localhost -p 8888 -c\n"; # reverse remote command execution (client)
     print "\n";
     exit;
 }
@@ -58,7 +65,7 @@ sub execute {
     $sock->send($output);
 }
 
-sub clienthandler {
+sub optionmanager {
     my $sock = shift;
     if($upload) {
         &uploadfile($sock);
@@ -80,6 +87,35 @@ sub clienthandler {
     }
 }
 
+sub correspond {
+    my $sock = shift;
+    while() {
+        my $recv_len = 1;
+        my $response = '';
+        while($recv_len) {
+            if(defined($sock->recv(my $data, 4096))) {
+                $recv_len = length($data);
+                $response .= $data;
+                last if $recv_len < 4096;
+            }
+            else { die "[!!] recv error: $!\n"; }
+        }
+        print $response;
+        my $buffer = <STDIN>;
+        $sock->send($buffer);
+    }
+}
+
+sub clienthandler {
+    my $sock = shift;
+    if($options) {
+        &optionmanager($sock);
+    }
+    else {
+        &correspond($sock);
+    }
+}
+
 sub serverloop {
     unless($target) {
         $target = "0.0.0.0";
@@ -95,6 +131,7 @@ sub serverloop {
         for my $s ($ioset->can_read) {
             if ($s == $server) {
                 my $client = $s->accept;
+                $client->autoflush(1);
                 $ioset->add($client);
                 print "[+] new connection\n";
                 $guard = 0;
@@ -116,24 +153,11 @@ sub clientloop {
         PeerAddr => $target,
         PeerPort => $port
     ) or die "[!!] Cannot connect to peer: $!\n";
+    $client->autoflush(1);
     if($buffer) {
         $client->send($buffer) or die "[!!] Cannot send to peer: $!\n";
     }
-    while() {
-        my $recv_len = 1;
-        my $response = '';
-        while($recv_len) {
-            if(defined($client->recv(my $data, 4096))) {
-                $recv_len = length($data);
-                $response .= $data;
-                last if $recv_len < 4096;
-            }
-            else { die "[!!] recv error: $!\n"; }
-        }
-        print $response;
-        $buffer = <STDIN>;
-        $client->send($buffer);
-    }
+    &clienthandler($client);
 }
 
 &usage() unless @ARGV;
@@ -150,12 +174,15 @@ unless($port) {
     print "[!!] no port\n";
     &usage();
 }
+$options = ($command || $execute || $upload) ? 1 : 0;
 if($listen) {
     &serverloop();
 }
 else {
     &usage() unless ($target && $port);
     my $buffer = '';
-    while(<STDIN>) { $buffer .= $_; }
+    unless($options) {
+        while(<STDIN>) { $buffer .= $_; }
+    }
     &clientloop($buffer);
 }
