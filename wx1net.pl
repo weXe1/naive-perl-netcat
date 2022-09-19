@@ -33,11 +33,11 @@ sub usage {
     print "\tperl $0 -t localhost -p 8888 -l\n"; # reverse remote command execution (server)
     print "\tperl $0 -t localhost -p 8888 -c\n"; # reverse remote command execution (client)
     print "Execute command:\n";
-    print "\tperl $0 -l -p 6666 -e .\\test.exe";
-    print "\techo NULL | perl $0 -t localhost -p 6666";
+    print "\tperl $0 -l -p 6666 -e .\\test.exe\n";
+    print "\techo NULL | perl $0 -t localhost -p 6666\n";
     print "Uploading file:\n";
-    print "\tperl $0 -l -p 6666 -u test2.txt";
-    print "\tcat test.pl | perl $0 -t localhost -p 6666";
+    print "\tperl $0 -l -p 6666 -u test2.txt\n";
+    print "\tcat test.pl | perl $0 -t localhost -p 6666\n";
     print "\n";
     exit;
 }
@@ -105,20 +105,32 @@ sub optionmanager {
 
 sub correspond {
     my $sock = shift;
+    
+    my $pid;
+    local $| = 1;
+    if (!defined($pid = fork)) {
+        die "fork: $!\n";
+    }
+
     while() {
-        my $recv_len = 1;
-        my $response = '';
-        while($recv_len) {
-            if(defined($sock->recv(my $data, 4096))) {
-                $recv_len = length($data);
-                $response .= $data;
-                last if $recv_len < 4096;
+        if ($pid) {
+            my $recv_len = 1;
+            my $response = '';
+            while($recv_len) {
+                if(defined($sock->recv(my $data, 4096))) {
+                    $recv_len = length($data);
+                    die "[!] no data\n" if $recv_len < 1;
+                    $response .= $data;
+                    last if $recv_len < 4096;
+                }
+                else { die "[!!] recv error: $!\n"; }
             }
-            else { die "[!!] recv error: $!\n"; }
+            print $response;
         }
-        print $response;
-        my $buffer = <STDIN>;
-        $sock->send($buffer);
+        else {
+            my $buffer = <STDIN>;
+            $sock->send($buffer);
+        }
     }
 }
 
@@ -126,9 +138,11 @@ sub clienthandler {
     my $sock = shift;
     if($options) {
         &optionmanager($sock);
+        return;
     }
     else {
         &correspond($sock);
+        return;
     }
 }
 
@@ -157,6 +171,7 @@ sub serverloop {
                 &clienthandler($s);
                 close $s;
                 $ioset->remove($s);
+                print "[-] closed connection\n";
             }
         }
     }
